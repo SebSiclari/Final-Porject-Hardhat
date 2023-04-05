@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -11,37 +10,59 @@ contract LockToken is ERC20, ERC20Burnable, Pausable, Ownable{
 
     struct UserInfo {
         uint lockedAmount;
-        uint lockBlockNumber;
+        uint unlockBlockNumber;
     }
+
+    mapping (address => mapping (address => uint256)) private _allowance;
     mapping( address => UserInfo[]) lockedBalance;
 
-    constructor() ERC20("MyToken", "MTK") {}
+    constructor() ERC20("LockToken", "LTK") {}
 
-    modifier isUnlocked(address from, address to, uint amount){
+    modifier isUnlocked(address user, uint amount){
         uint lockedFunds;
-        UserInfo[] array = lockedBalance[from];
+        UserInfo[] memory array = lockedBalance[user];
 
-        // loop through the array that contains the user info and add the funds to the variable 
         for(uint funds = 0; funds < array.length; funds++){
-            if(block.number)
+            if(array[funds].unlockBlockNumber > block.number){
             lockedFunds+= array[funds].lockedAmount;
         }
+        }
 
-        uint unlockedBalance = address(this).balance - lockedFunds;
+        uint unlockedBalance = balanceOf(user) - lockedFunds;
         require(unlockedBalance >= amount, "User does not have enough unlocked balance!");
         _;
     }
 
-    function getUnlockedAmount() public view returns(uint) {
-        return 17;
+    function getUnlockedAmount(address user) public view  returns(uint) {
+        uint lockedFunds;
+        UserInfo[] memory array = lockedBalance[user];
+        uint unlockedAmount;
+
+        for(uint i =0; i < array.length; i++){
+            if(array[i].unlockBlockNumber > block.number){
+            lockedFunds+= array[i].lockedAmount;
+            }
+        }
+        unlockedAmount = balanceOf(user) - lockedFunds;
+        return unlockedAmount;
+    }
+
+    function lock(uint amount, uint unlockBlockNumber) public {
+        uint userUnlockedAmount = getUnlockedAmount(msg.sender);
+        require(userUnlockedAmount >= amount, "User does not have enough funds to lock this amount");
+        require(unlockBlockNumber > block.number, "unlockBlockNumber has to be greater than the current blockNumber");
+        UserInfo memory lockUserInfo;
+        lockUserInfo.lockedAmount = amount;
+        lockUserInfo.unlockBlockNumber = unlockBlockNumber;
+        lockedBalance[msg.sender].push(lockUserInfo);
     }
 
 
-    function burn(address account, uint256 amount) public isUnlocked {
+    function burn(address account, uint256 amount) public isUnlocked(msg.sender, amount) {
         _burn(account, amount);
     }
 
-    function trasnfer( address from, address to, uint256 amount) public isUnlocked {
+    function transfer( address from, address to, uint256 amount) public isUnlocked(msg.sender, amount) {
         _transfer(from, to, amount);
     }
 
@@ -74,7 +95,7 @@ contract LockToken is ERC20, ERC20Burnable, Pausable, Ownable{
         address from,
         address to,
         uint256 amount
-    ) public virtual override isUnlocked(from, to, amount) returns (bool) {
+    ) public virtual override isUnlocked(msg.sender, amount) returns (bool) {
         address spender = _msgSender();
         _spendAllowance(from, spender, amount);
         _transfer(from, to, amount);
